@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using FluentAssertions;
 using NUnit.Framework;
 using Common.Utils;
@@ -17,81 +16,102 @@ namespace UnitTests
         private readonly Random Random = new();
 
         [Test]
-        public void Test1([Values(-1,1)]int sign)
+        public void IntMatcherTest([Values(-1,1)]int sign)
         {
             var needle = sign * Random.Next();
-            var abc = TypeParser.TypeParser.Parse<int>(needle.ToString());
+            var abc = TypeParse.Parse<int>(needle.ToString());
             abc.Should().Be(needle);
         }
 
         [Test]
-        public void Test2()
+        public void StringMatcherTest()
         {
             var needle = RandomString();
-            var abc = TypeParser.TypeParser.Parse<string>(needle);
+            var abc = TypeParse.Parse<string>(needle);
             abc.Should().Be(needle);
         }
 
         [Test]
-        public void Test3()
+        public void CharMatcherTest()
         {
             var needle = RandomChar;
-            var abc = TypeParser.TypeParser.Parse<char>(needle.ToString());
+            var abc = TypeParse.Parse<char>(needle.ToString());
             abc.Should().Be(needle);
         }
 
         [Test]
         public void IntListTest()
         {
-            var result = TypeParser.TypeParser.Parse<IReadOnlyList<int>>("123 456\t789 \n\t000 101112");
+            var result = TypeParse.Parse<IReadOnlyList<int>>("123 456\t789 \n\t000 101112");
             result.Should().Equal(123, 456, 789, 0, 101112);
         }
 
         [Test]
         public void CharListTest()
         {
-            var result = TypeParser.TypeParser.Parse<IReadOnlyList<char>>("a b c");
+            var result = TypeParse.Parse<IReadOnlyList<char>>("a b c");
             result.Should().Equal('a', 'b', 'c');
         }
 
         [Test]
-        public void AnotherTest()
+        public void TupleTest()
         {
-            var result = TypeParser.TypeParser.Parse<(string, int)>("abc 123");
+            var result = TypeParse.Parse<(string, int)>("abc 123");
             result.Should().Be(("abc", 123));
         }
 
         [UsedImplicitly]
-        private record TestClass([RxRepeat(Separator = ",")]List<(string, int)> Value);
+        private record TestClass([Format(Separator = ",")]List<(string, int)> Value);
 
         [Test]
         public void AnotherTest2()
         {
-            var result = TypeParser.TypeParser.Parse<TestClass>("abc 123, def 456");
+            var result = TypeParse.Parse<TestClass>("abc 123, def 456");
             result.Value.Should().Equal(("abc", 123), ("def", 456));
         }
 
-        [Test]
-        public void Test4()
-        {
-            var result = TypeParser.TypeParser.ParseOrDefault<DayClass>("Day01");
-        }
-
+        [TestCase(0, 1, 0, 0)]
+        [TestCase(0, 1, 1, 1)]
         [TestCase(1, 1, 1, 1)]
-        public void RepeatTest(int min, int max, int generated, int expected)
+        [TestCase(1, 1, 2, 1)]
+        [TestCase(2, 5, 2, 2)]
+        [TestCase(2, 5, 10, 5)]
+        public void ListTest(int min, int max, int generated, int expected)
         {
             var haystack = Enumerable.Range(0, generated).Join(" ");
-            var matcher = TypeParser.TypeParser.Compile<List<int>>(repeat: new RxRepeat { Min = min, Max = max });
-            var m = matcher.TryScan(haystack, out var result, out _);
+            var matcher = TypeParse.GetTypeParser<List<int>>(new FormatAttribute(){ Min = min, Max = max });
+            var m = matcher.Match(haystack);
+            m.Should().NotBeNull();
+            m!.Value.Should().Equal(Enumerable.Range(0, expected));
+            var remainder = TypeParse.GetTypeParser<List<int>>(new FormatAttribute { Min = 0 }).Match(m.Remainder);
+            remainder!.Value.Should().Equal(Enumerable.Range(expected, generated - expected));
         }
 
-        [Inherited]
-        public record RecordWithInheritedAttribute(int Value);
-
-        public class DayClass
+        [TestCase("", null)]
+        [TestCase("abc", null)]
+        [TestCase("abc 123", null)]
+        [TestCase("123", 123)]
+        [TestCase("   \t\n 123abc", 123)]
+        public void NegativeMatch(string input, int? expected)
         {
-            [RxFormat(Before = "Day")]
-            public int DayNumber { get; set; }
+            var matcher = TypeParse.GetTypeParser<int>();
+            var m = matcher.Match(input);
+            if (expected is { } e) m!.Value.Should().Be(e);
+            else m.Should().BeNull();
+        }
+
+        [TestCase("", null)]
+        [TestCase(" a", 'a')]
+        [TestCase("a", 'a')]
+        [TestCase(" b", 'b')]
+        [TestCase("b", 'b')]
+        [TestCase("cb", null)]
+        public void OverrideRegexTest(string input, char? expected)
+        {
+            var matcher = TypeParse.GetTypeParser<char>(new FormatAttribute { Regex = "/a|b/" });
+            var m = matcher.Match(input);
+            if (expected is { } e) m!.Value.Should().Be(e);
+            else m.Should().BeNull();
         }
 
         private string RandomString()
@@ -111,11 +131,5 @@ namespace UnitTests
             .ToList();
 
         private char RandomChar => Chars[Random.Next(0, Chars.Count)];
-    }
-
-    [AttributeUsage(AttributeTargets.All)]
-    public class InheritedAttribute : RxFormat
-    {
-
     }
 }

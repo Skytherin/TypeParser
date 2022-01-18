@@ -1,38 +1,35 @@
-﻿namespace TypeParser.Matchers
+﻿using System.Text.RegularExpressions;
+
+namespace TypeParser.Matchers
 {
     internal class AfterMatcher : ITypeMatcher
     {
-        private readonly string After;
+        private readonly Regex After;
         private readonly ITypeMatcher SubMatcher;
 
-        public AfterMatcher(string after, ITypeMatcher subMatcher)
+        public AfterMatcher(Regex after, ITypeMatcher subMatcher)
         {
             After = after;
             SubMatcher = subMatcher;
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        public ITypeMatcher.Result? Match(string input)
         {
-            var m = SubMatcher.TryScan(input, out output, out remainder);
+            var m = SubMatcher.Match(input);
 
-            if (!m)
+            if (m == null) return null;
+
+            var remainder = m.Remainder.TrimStart();
+
+            var m2 = After.Match(remainder);
+
+            if (!m2.Success)
             {
-                output = null;
-                remainder = input;
-                return false;
+                return null;
             }
 
-            remainder = remainder.TrimStart();
-
-            if (!remainder.StartsWith(After))
-            {
-                output = null;
-                remainder = input;
-                return false;
-            }
-
-            remainder = remainder[After.Length..];
-            return true;
+            remainder = remainder[m2.Length..];
+            return new(m.Object, remainder);
         }
     }
 }

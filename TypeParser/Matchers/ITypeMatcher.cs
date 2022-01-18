@@ -1,7 +1,8 @@
 ﻿namespace TypeParser.Matchers
 {
-    public interface ITypeMatcher<T>
+    internal interface ITypeMatcher
     {
-        bool TryScan(string input, out T output, out string remainder);
+        record Result(object? Object, string Remainder);
+        Result? Match(string input);
     }
 }

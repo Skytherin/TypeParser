@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Text.RegularExpressions;
 
 namespace TypeParser.Matchers
 {
-    internal class IntMatcher : RxMatcher
+    internal class IntMatcher : RxMatcher<int>
     {
-        public IntMatcher() : base(@"-?\d+", s => Convert.ToInt32(s))
+        public IntMatcher(Regex? regex) : base(regex ?? new(@"-?\d+"), Convert.ToInt32)
         {
         }
     }

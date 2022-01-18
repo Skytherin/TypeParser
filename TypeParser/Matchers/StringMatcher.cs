@@ -1,8 +1,10 @@
-﻿namespace TypeParser.Matchers
+﻿using System.Text.RegularExpressions;
+
+namespace TypeParser.Matchers
 {
-    internal class StringMatcher : RxMatcher
+    internal class StringMatcher : RxMatcher<string>
     {
-        public StringMatcher() : base(@"[a-zA-Z]+", s => s)
+        public StringMatcher(Regex? regex) : base(regex ?? new(@"[a-zA-Z]+"), s => s)
         {
         }
     }

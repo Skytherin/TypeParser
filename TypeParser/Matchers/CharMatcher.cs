@@ -1,8 +1,10 @@
-﻿namespace TypeParser.Matchers
+﻿using System.Text.RegularExpressions;
+
+namespace TypeParser.Matchers
 {
-    internal class CharMatcher : RxMatcher
+    internal class CharMatcher : RxMatcher<char>
     {
-        public CharMatcher() : base(@"\S", s => s[0])
+        public CharMatcher(Regex? match) : base(match ?? new(@"\S"), s => s[0])
         {
         }
     }

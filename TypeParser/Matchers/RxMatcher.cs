@@ -3,29 +3,23 @@ using System.Text.RegularExpressions;
 
 namespace TypeParser.Matchers
 {
-    internal class RxMatcher: ITypeMatcher
+    internal class RxMatcher<T>: ITypeMatcher
     {
-        private readonly string Rx;
-        private readonly Func<string, object?> Convert;
+        private readonly Regex Rx;
+        private readonly Func<string, T> Convert;
 
-        public RxMatcher(string rx, Func<string, object?> convert)
+        public RxMatcher(Regex rx, Func<string, T> convert)
         {
-            Rx = rx;
+            Rx = new($"^{rx}");
             Convert = convert;
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        public ITypeMatcher.Result? Match(string input)
         {
-            var m = Regex.Match(input, $@"^{Rx}");
-            if (!m.Success)
-            {
-                output = default!;
-                remainder = input;
-                return false;
-            }
-            output = Convert(m.Value);
-            remainder = input[m.Length..];
-            return true;
+            input = input.TrimStart();
+            var m = Rx.Match(input);
+            if (!m.Success) return null;
+            return new(Convert(m.Value), input[m.Length..]);
         }
     }
 }

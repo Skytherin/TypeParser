@@ -1,27 +1,28 @@
-﻿namespace TypeParser.Matchers
+﻿using System.Text.RegularExpressions;
+
+namespace TypeParser.Matchers
 {
     internal class BeforeMatcher : ITypeMatcher
     {
-        private readonly string Before;
+        private readonly Regex Before;
         private readonly ITypeMatcher SubMatcher;
 
-        public BeforeMatcher(string before, ITypeMatcher subMatcher)
+        public BeforeMatcher(Regex before, ITypeMatcher subMatcher)
         {
             Before = before;
             SubMatcher = subMatcher;
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        public ITypeMatcher.Result? Match(string input)
         {
-            if (!input.StartsWith(Before))
+            input = input.TrimStart();
+            var m = Before.Match(input);
+            if (!m.Success)
             {
-                output = null;
-                remainder = input;
-                return false;
+                return null;
             }
-            input = input[Before.Length..].TrimStart();
 
-            return SubMatcher.TryScan(input, out output, out remainder);
+            return SubMatcher.Match(input[m.Length..]);
         }
     }
 }

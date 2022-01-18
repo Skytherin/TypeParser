@@ -2,24 +2,25 @@
 {
     internal class EntireStringMatcher : ITypeMatcher
     {
-        private readonly ITypeMatcher Internals;
+        private readonly ITypeMatcher SubMatcher;
 
-        public EntireStringMatcher(ITypeMatcher internals)
+        public EntireStringMatcher(ITypeMatcher subMatcher)
         {
-            Internals = internals;
+            SubMatcher = subMatcher;
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        public ITypeMatcher.Result? Match(string input)
         {
             input = input.TrimStart();
-            if (!Internals.TryScan(input, out output, out remainder)) return false;
-            remainder = remainder.Trim();
+            var m = SubMatcher.Match(input);
+            if (m == null) return null;
+            var remainder = m.Remainder.Trim();
             if (remainder.Length > 0)
             {
-                return false;
+                return null;
             }
 
-            return true;
+            return new(m.Object, "");
         }
     }
 }

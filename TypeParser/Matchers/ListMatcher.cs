@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace TypeParser.Matchers
@@ -7,52 +6,49 @@ namespace TypeParser.Matchers
     internal class ListMatcher<T> : ITypeMatcher
     {
         private readonly ITypeMatcher ElementMatcher;
-        private readonly RxRepeat Repeat;
+        private readonly Format Repeat;
 
-        public ListMatcher(ITypeMatcher elementMatcher, RxRepeat? repeat)
+        public ListMatcher(ITypeMatcher elementMatcher, Format repeat)
         {
-            Repeat = repeat ?? new RxRepeat();
+            Repeat = repeat;
             ElementMatcher = elementMatcher;
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        public ITypeMatcher.Result? Match(string input)
         {
+            input = input.TrimStart();
             var instance = new List<T>();
 
-            var first = true;
-            remainder = input;
-            output = null;
+            var m = ElementMatcher.Match(input);
+            if (m == null)
+            {
+                if (Repeat.Min == 0) return new(instance, input);
+                return null;
+            }
+
+            instance.Add((T)m.Object!);
+            input = m.Remainder;
+
             while (instance.Count < Repeat.Max)
             {
-                if (!first)
-                {
-                    var m1 = Regex.Match(input, @$"^\s*{Repeat.Separator}\s*");
-                    if (!m1.Success) break;
-                    input = input[m1.Length..];
-                }
+                var m1 = Regex.Match(input, @$"^\s*{Repeat.Separator}\s*");
+                if (!m1.Success) break;
+                input = input[m1.Length..];
 
-                first = false;
+                m = ElementMatcher.Match(input);
 
-                var m = ElementMatcher.TryScan(input, out var element, out var remainder2);
-                if (!m)
-                {
-                    return false;
-                }
+                if (m == null) return null;
 
-                if (element is T { } e) instance.Add(e);
-                else throw new ApplicationException("Mismatched element in list. This should never happen.");
-
-                input = remainder2;
+                instance.Add((T)m.Object!);
+                input = m.Remainder;
             }
 
             if (instance.Count < Repeat.Min)
             {
-                return false;
+                return null;
             }
 
-            output = instance;
-            remainder = input;
-            return true;
+            return new(instance, input);
         }
     }
 }

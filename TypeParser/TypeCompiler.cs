@@ -10,76 +10,79 @@ using TypeParser.Matchers;
 
 namespace TypeParser
 {
-    internal static class TypeMatcherHelper
+    internal class TypeCompiler
     {
-        public static ITypeMatcher TypeParserForType(Type type, RxFormat? format = null, RxRepeat? repeat = null)
+        private readonly Dictionary<Type, ITypeMatcher> CompiledTypes = new();
+
+        public ITypeMatcher TypeParserForType(Type type, Format? format = null)
         {
+            format ??= FormatExtensions.DefaultFormat();
             if (type.IsGenericType &&
                 type.GetGenericTypeDefinition() == typeof(Nullable<>) &&
                 type.GenericTypeArguments.Length == 1 &&
                 type.GenericTypeArguments.FirstOrDefault() is { } targ &&
                 type.IsAssignableTo(typeof(Nullable<>).MakeGenericType(targ)))
             {
-                return new OptionalMatcher(TypeParserForType(targ, new RxFormat(format?.Before, format?.After, false), repeat));
+                return new OptionalMatcher(TypeParserForType(targ, format with {Optional = false}));
             }
 
             if (format is {Optional: true})
             {
-                return new OptionalMatcher(TypeParserForType(type, new RxFormat(format.Before, format.After, false), repeat));
+                return new OptionalMatcher(TypeParserForType(type, format with {Optional = false}));
             }
 
-            if (format?.Before is not null)
+            if (format.Before is not null)
             {
-                return new BeforeMatcher(format.Before, TypeParserForType(type, new RxFormat(null, format.After, format.Optional), repeat));
+                return new BeforeMatcher(format.Before, TypeParserForType(type, format with {Before = null}));
             }
 
-            if (format?.After is not null)
+            if (format.After is not null)
             {
-                return new AfterMatcher(format.After, TypeParserForType(type, new RxFormat(format.Before, null, format.Optional), repeat));
+                return new AfterMatcher(format.After, TypeParserForType(type, format with {After = null}));
             }
 
-            if (type == typeof(int)) return new IntMatcher();
-            if (type == typeof(long)) return new LongMatcher();
-            if (type == typeof(char)) return new CharMatcher();
-            if (type == typeof(string)) return new StringMatcher();
-            
+            if (type == typeof(int)) return new IntMatcher(format.Regex);
+            if (type == typeof(long)) return new LongMatcher(format.Regex);
+            if (type == typeof(char)) return new CharMatcher(format.Regex);
+            if (type == typeof(string)) return new StringMatcher(format.Regex);
+
+            if (CompiledTypes.TryGetValue(type, out var compiledType)) return compiledType;
 
             if (type.IsGenericType &&
                 type.GenericTypeArguments.Length == 1 &&
                 type.GenericTypeArguments.FirstOrDefault() is { } targ2 &&
-                type.IsAssignableFrom(typeof(List<>).MakeGenericType(targ2)))
+                typeof(List<>).MakeGenericType(targ2) is {} listType &&
+                type.IsAssignableFrom(listType))
             {
-                var lmType = typeof(ListMatcher<>).MakeGenericType(targ2);
-                var instance = Activator.CreateInstance(lmType, TypeParserForType(targ2), repeat);
-                return (ITypeMatcher)instance!;
+                var elementMatcher = TypeParserForType(targ2);
+                var listMatcherType = typeof(ListMatcher<>).MakeGenericType(targ2);
+                return (ITypeMatcher)Activator.CreateInstance(listMatcherType, elementMatcher, format)!;
             }
 
             if (type.IsEnum)
             {
-                var mi = typeof(TypeMatcherHelper).GetMethod("GetEnumMap", BindingFlags.NonPublic | BindingFlags.Static);
+                var mi = typeof(TypeCompiler).GetMethod("GetEnumMap", BindingFlags.NonPublic | BindingFlags.Static);
                 var fooRef = mi!.MakeGenericMethod(type);
-                var map = (Dictionary<string, int>)fooRef.Invoke(null, null)!;
+                var map = (Dictionary<string, object>)fooRef.Invoke(null, null)!;
 
                 var alternation = map.Keys.Select(it => $"({it})").Join("|");
 
-                return new RxMatcher(alternation, s => map[s.ToLower()]);
+                return new RxMatcher<object?>(new(alternation), s => map[s.ToLower()]);
             }
 
             if (type.IsGenericType &&
-                type.IsAssignableTo(typeof(ITuple)))
+                type.IsAssignableTo(typeof(ITuple)) || type.IsClass)
             {
-                return new ClassMatcher(type);
-            }
-
-            if (type.IsClass)
-            {
-                return new ClassMatcher(type);
+                var classMatcher = new ClassMatcher(type, this);
+                CompiledTypes.Add(type, classMatcher);
+                return classMatcher;
             }
 
             throw new ApplicationException();
         }
 
         [UsedImplicitly]
+#pragma warning disable IDE0051
         private static Dictionary<string, int> GetEnumMap<T>()
         {
             var enumValues = typeof(T).GetEnumValues();

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using Common.Utils;
@@ -8,118 +9,126 @@ namespace TypeParser.Matchers
 {
     internal class ClassMatcher : ITypeMatcher
     {
-        private readonly Type MyType;
+        private readonly TypeCompiler Compiler;
+        private readonly ConstructorInfo Ctor;
+        private readonly IReadOnlyList<InfoType> Properties;
+        private IReadOnlyList<ITypeMatcher>? Matchers;
 
-        public ClassMatcher(Type type)
+        public ClassMatcher(Type type, TypeCompiler compiler)
         {
-            MyType = type;
-        }
+            Compiler = compiler;
+            var ctors = type.GetConstructors();
+            Ctor = ctors.FirstOrDefault(ctor => ctor.GetParameters().Length == 0) ?? ctors.First();
 
-        private record InfoType(string Name, Type Type, IReadOnlyList<Attribute> Attributes, PropertyInfo? PropertyInfo = null);
-
-        private IReadOnlyList<InfoType> FindPropertiesForClass()
-        {
-            var ctors = MyType.GetConstructors();
-            if (ctors.Any(ctor => ctor.GetParameters().Length == 0))
+            if (Ctor.GetParameters().Length == 0)
             {
-                return MyType.GetProperties()
+                Properties = type.GetProperties()
                     .Where(p => p.SetMethod != null)
                     .Where(p => p.GetCustomAttribute<RxIgnore>() == null)
-                    .Select(it => new InfoType(it.Name, it.PropertyType, it.GetCustomAttributes().ToList(), it))
+                    .Select(property => new InfoType(property.Name, property.PropertyType, property.GetCustomAttributes().ToList(),
+                        property))
                     .ToList();
             }
-
-            return ctors.First().GetParameters()
-                .WithIndices()
-                .Select(p => new InfoType(p.Value.Name ?? $"p{p.Index}", p.Value.ParameterType, p.Value.GetCustomAttributes().ToList()))
-                .ToList();
+            else
+            {
+                Properties = ctors.First().GetParameters()
+                    .WithIndices()
+                    .Select(p =>
+                    {
+                        var property = p.Value;
+                        return new InfoType(property.Name ?? $"p{p.Index}", property.ParameterType, property.GetCustomAttributes().ToList());
+                    })
+                    .ToList();
+            }
         }
 
-        public bool TryScan(string input, out object? output, out string remainder)
+        private record InfoType(string Name, Type Type, IReadOnlyList<Attribute> Attributes, 
+            PropertyInfo? PropertyInfo = null);
+
+        private IReadOnlyList<ITypeMatcher> Compile()
         {
-            var properties = FindPropertiesForClass();
-
-            var alternations = new List<string>();
-
-            var actuals = new List<object?>();
-
-            var keepAlternate = false;
-
-            var first = true;
-            remainder = input;
-            foreach (var property in properties)
+            if (Matchers == null)
             {
-                if (!first)
-                {
-                    input = input.TrimStart();
-                }
-
-                first = false;
-
-                var rxFormat = property.Attributes.OfType<RxFormat>().FirstOrDefault() ?? new RxFormat();
-                var rxRepeat = property.Attributes.OfType<RxRepeat>().FirstOrDefault() ?? new RxRepeat();
-                var matcher = TypeMatcherHelper.TypeParserForType(property.Type, rxFormat, rxRepeat);
-                var rxAlternate = property.Attributes.OfType<RxAlternate>().FirstOrDefault();
-
-                if (keepAlternate)
-                {
-                    if (rxAlternate == null || rxAlternate.Restart)
-                    {
-                        throw new ApplicationException("Never matched an alternate.");
-                    }
-                }
-
-                if (rxAlternate != null && !keepAlternate)
-                {
-                    continue;
-                }
-
-                var matched = matcher.TryScan(input, out var needle, out remainder);
-
-                if (!matched && rxFormat.Optional)
-                {
-                    actuals.Add(null);
-                    continue;
-                }
-
-                if (!matched && rxAlternate is { })
-                {
-                    actuals.Add(null);
-                    keepAlternate = true;
-                    continue;
-                }
-
-                if (!matched)
-                {
-                    output = null;
-                    return false;
-                }
-
-                keepAlternate = false;
-
-                actuals.Add(needle);
-                input = remainder;
+                Matchers = Properties.Select(it =>
+                    Compiler.TypeParserForType(it.Type,
+                        it.Attributes.OfType<FormatAttribute>().FirstOrDefault()?.Format())).ToList();
             }
 
-            
-            var ctors = MyType.GetConstructors();
+            return Matchers;
+        }
 
-            if (ctors.Any(ctor => ctor.GetParameters().Length == 0))
+        public ITypeMatcher.Result? Match(string input)
+        {
+            var actuals = new List<object?>();
+
+            var alternateFound = false;
+            var previousWasAlternate = false;
+
+            foreach (var (property, propertyMatcher) in Properties.Zip(Compile()))
             {
-                var instance = Activator.CreateInstance(MyType)!;
-                foreach (var (actual, property) in actuals.Zip(properties))
+                var rxAlternate = property.Attributes.OfType<RxAlternate>().FirstOrDefault();
+
+                if (previousWasAlternate && (rxAlternate == null || rxAlternate.Restart))
+                {
+                    if (!alternateFound) return null;
+                    previousWasAlternate = false;
+                    alternateFound = false;
+                }
+
+                if (rxAlternate != null && previousWasAlternate && alternateFound)
+                {
+                    actuals.Add(null);
+                    continue;
+                }
+
+                if (rxAlternate is { })
+                {
+                    previousWasAlternate = true;
+                }
+
+                var matched = propertyMatcher.Match(input.TrimStart());
+
+                if (matched == null)
+                {
+                    var rxFormat = property.Attributes.OfType<FormatAttribute>().FirstOrDefault() ?? new FormatAttribute();
+                    if (rxFormat.Optional || rxAlternate is {})
+                    {
+                        actuals.Add(null);
+                        continue;
+                    }
+
+                    return null;
+                }
+
+                if (rxAlternate is { })
+                {
+                    alternateFound = true;
+                }
+
+                actuals.Add(matched.Object);
+                input = matched.Remainder;
+            }
+
+            if (previousWasAlternate && !alternateFound) return null;
+            var instance = Instantiate(actuals);
+            Debug.WriteLine($"Matched {instance.GetType().Name}; tail = {input}");
+            return new(instance, input);
+        }
+
+        private object Instantiate(IEnumerable<object?> actuals)
+        {
+            if (Ctor.GetParameters().Length == 0)
+            {
+                var instance = Ctor.Invoke(Array.Empty<object?>());
+                foreach (var (actual, property) in actuals.Zip(Properties))
                 {
                     property.PropertyInfo!.SetValue(instance, actual);
                 }
 
-                remainder = input;
-                output = instance;
-                return true;
+                return instance;
             }
 
-            output = ctors.First().Invoke(actuals.ToArray());
-            remainder = input;
-            return true;
+            return Ctor.Invoke(actuals.ToArray());
         }
     }
 }
