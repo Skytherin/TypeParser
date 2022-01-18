@@ -22,7 +22,7 @@ namespace UnitTests
         {
             var matcher = TypeParse.Compile<Expression>();
             var m = matcher.Match(input);
-            if (expected != null) m.Value.Evaluate().Should().Be(expected);
+            if (expected != null) m!.Value.Evaluate().Should().Be(expected);
             else m.Should().BeNull();
         }
     }

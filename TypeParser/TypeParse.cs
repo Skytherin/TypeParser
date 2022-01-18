@@ -38,19 +38,18 @@ namespace TypeParser
         public static ITypeParser<T> Compile<T>(FormatAttribute? format = null)
         {
             var compiler = new TypeCompiler();
-            return new TypeParserFacade<T>(
-                new EntireStringMatcher(compiler.TypeParserForType(typeof(T), format?.Format())));
+            return new TypeParserFacade<T>(new EntireStringMatcher(compiler.Compile(typeof(T), format?.Format())));
         }
 
         public static ITypeParser<T> GetTypeParser<T>(FormatAttribute? format = null)
         {
             var compiler = new TypeCompiler();
-            return new TypeParserFacade<T>(compiler.TypeParserForType(typeof(T), format?.Format()));
+            return new TypeParserFacade<T>(compiler.Compile(typeof(T), format?.Format()));
         }
 
-        public static T Parse<T>(string input)
+        public static T Parse<T>(string input, FormatAttribute? format = null)
         {
-            var compiled = Compile<T>();
+            var compiled = Compile<T>(format);
             var m = compiled.Match(input);
             if (m != null)
             {
@@ -63,7 +62,7 @@ namespace TypeParser
         [UsedImplicitly]
         public static List<T> ParseLines<T>(string input)
         {
-            return input.Lines().Select(Parse<T>).ToList();
+            return input.Lines().Select(it => Parse<T>(it)).ToList();
         }
 
         [UsedImplicitly]

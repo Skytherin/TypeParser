@@ -60,14 +60,11 @@ namespace UnitTests
             result.Should().Be(("abc", 123));
         }
 
-        [UsedImplicitly]
-        private record TestClass([Format(Separator = ",")]List<(string, int)> Value);
-
         [Test]
         public void AnotherTest2()
         {
-            var result = TypeParse.Parse<TestClass>("abc 123, def 456");
-            result.Value.Should().Equal(("abc", 123), ("def", 456));
+            var result = TypeParse.Parse<List<(string, int)>>("abc 123, def 456", new FormatAttribute{Separator = ","});
+            result.Should().Equal(("abc", 123), ("def", 456));
         }
 
         [TestCase(0, 1, 0, 0)]

@@ -25,7 +25,7 @@ namespace TypeParser.Matchers
                 Properties = type.GetProperties()
                     .Where(p => p.SetMethod != null)
                     .Where(p => p.GetCustomAttribute<RxIgnore>() == null)
-                    .Select(property => new InfoType(property.Name, property.PropertyType, property.GetCustomAttributes().ToList(),
+                    .Select(property => new InfoType(property.PropertyType, property.GetCustomAttributes().ToList(),
                         property))
                     .ToList();
             }
@@ -36,13 +36,13 @@ namespace TypeParser.Matchers
                     .Select(p =>
                     {
                         var property = p.Value;
-                        return new InfoType(property.Name ?? $"p{p.Index}", property.ParameterType, property.GetCustomAttributes().ToList());
+                        return new InfoType(property.ParameterType, property.GetCustomAttributes().ToList());
                     })
                     .ToList();
             }
         }
 
-        private record InfoType(string Name, Type Type, IReadOnlyList<Attribute> Attributes, 
+        private record InfoType(Type Type, IReadOnlyList<Attribute> Attributes, 
             PropertyInfo? PropertyInfo = null);
 
         private IReadOnlyList<ITypeMatcher> Compile()
@@ -50,7 +50,7 @@ namespace TypeParser.Matchers
             if (Matchers == null)
             {
                 Matchers = Properties.Select(it =>
-                    Compiler.TypeParserForType(it.Type,
+                    Compiler.Compile(it.Type,
                         it.Attributes.OfType<FormatAttribute>().FirstOrDefault()?.Format())).ToList();
             }
 
@@ -61,59 +61,81 @@ namespace TypeParser.Matchers
         {
             var actuals = new List<object?>();
 
-            var alternateFound = false;
-            var previousWasAlternate = false;
+            var alternativeGroups = SplitIntoAlternativeGroups();
 
+            foreach (var alternativeGroup in alternativeGroups)
+            {
+                var result = MatchAlternates(alternativeGroup, input);
+                if (result is not {} r) return null;
+                actuals.AddRange(r.Actuals);
+                input = r.Remainder;
+            }
+
+            var instance = Instantiate(actuals);
+            Debug.WriteLine($"Matched {instance.GetType().Name}; tail = {input}");
+            return new(instance, input);
+        }
+
+        private IReadOnlyList<IReadOnlyList<ITypeMatcher>> SplitIntoAlternativeGroups()
+        {
+            var alternativeGroups = new List<List<ITypeMatcher>>();
+            List<ITypeMatcher>? g = null;
             foreach (var (property, propertyMatcher) in Properties.Zip(Compile()))
             {
                 var rxAlternate = property.Attributes.OfType<RxAlternate>().FirstOrDefault();
-
-                if (previousWasAlternate && (rxAlternate == null || rxAlternate.Restart))
+                if (rxAlternate == null)
                 {
-                    if (!alternateFound) return null;
-                    previousWasAlternate = false;
-                    alternateFound = false;
+                    alternativeGroups.Add(new() { propertyMatcher });
                 }
+                else if (rxAlternate.Restart || g == null)
+                {
+                    g = new() { propertyMatcher };
+                    alternativeGroups.Add(g);
+                }
+                else
+                {
+                    g.Add(propertyMatcher);
+                }
+            }
 
-                if (rxAlternate != null && previousWasAlternate && alternateFound)
+            return alternativeGroups;
+        }
+
+        private static (IReadOnlyList<object?> Actuals, string Remainder)? MatchAlternates(IReadOnlyList<ITypeMatcher> alternatives, string input)
+        {
+            var found = false;
+            var actuals = new List<object?>();
+
+            foreach (var propertyMatcher in alternatives)
+            {
+                input = input.TrimStart();
+                if (found)
                 {
                     actuals.Add(null);
                     continue;
-                }
-
-                if (rxAlternate is { })
-                {
-                    previousWasAlternate = true;
                 }
 
                 var matched = propertyMatcher.Match(input.TrimStart());
 
                 if (matched == null)
                 {
-                    var rxFormat = property.Attributes.OfType<FormatAttribute>().FirstOrDefault() ?? new FormatAttribute();
-                    if (rxFormat.Optional || rxAlternate is {})
-                    {
-                        actuals.Add(null);
-                        continue;
-                    }
-
-                    return null;
+                    actuals.Add(null);
+                    continue;
                 }
 
-                if (rxAlternate is { })
-                {
-                    alternateFound = true;
-                }
-
+                found = true;
                 actuals.Add(matched.Object);
                 input = matched.Remainder;
             }
 
-            if (previousWasAlternate && !alternateFound) return null;
-            var instance = Instantiate(actuals);
-            Debug.WriteLine($"Matched {instance.GetType().Name}; tail = {input}");
-            return new(instance, input);
+            if (!found)
+            {
+                return null;
+            }
+
+            return (actuals, input);
         }
+
 
         private object Instantiate(IEnumerable<object?> actuals)
         {

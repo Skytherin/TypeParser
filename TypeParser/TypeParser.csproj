@@ -30,4 +30,8 @@
     </_PackageFiles>
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="UtilityClasses\" />
+  </ItemGroup>
+
 </Project>

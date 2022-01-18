@@ -14,7 +14,7 @@ namespace TypeParser
     {
         private readonly Dictionary<Type, ITypeMatcher> CompiledTypes = new();
 
-        public ITypeMatcher TypeParserForType(Type type, Format? format = null)
+        public ITypeMatcher Compile(Type type, Format? format = null)
         {
             format ??= FormatExtensions.DefaultFormat();
             if (type.IsGenericType &&
@@ -23,22 +23,22 @@ namespace TypeParser
                 type.GenericTypeArguments.FirstOrDefault() is { } targ &&
                 type.IsAssignableTo(typeof(Nullable<>).MakeGenericType(targ)))
             {
-                return new OptionalMatcher(TypeParserForType(targ, format with {Optional = false}));
+                return new OptionalMatcher(Compile(targ, format with {Optional = false}));
             }
 
             if (format is {Optional: true})
             {
-                return new OptionalMatcher(TypeParserForType(type, format with {Optional = false}));
+                return new OptionalMatcher(Compile(type, format with {Optional = false}));
             }
 
             if (format.Before is not null)
             {
-                return new BeforeMatcher(format.Before, TypeParserForType(type, format with {Before = null}));
+                return new BeforeMatcher(format.Before, Compile(type, format with {Before = null}));
             }
 
             if (format.After is not null)
             {
-                return new AfterMatcher(format.After, TypeParserForType(type, format with {After = null}));
+                return new AfterMatcher(format.After, Compile(type, format with {After = null}));
             }
 
             if (type == typeof(int)) return new IntMatcher(format.Regex);
@@ -54,7 +54,7 @@ namespace TypeParser
                 typeof(List<>).MakeGenericType(targ2) is {} listType &&
                 type.IsAssignableFrom(listType))
             {
-                var elementMatcher = TypeParserForType(targ2);
+                var elementMatcher = Compile(targ2);
                 var listMatcherType = typeof(ListMatcher<>).MakeGenericType(targ2);
                 return (ITypeMatcher)Activator.CreateInstance(listMatcherType, elementMatcher, format)!;
             }
@@ -81,6 +81,7 @@ namespace TypeParser
             throw new ApplicationException();
         }
 
+        
         [UsedImplicitly]
 #pragma warning disable IDE0051
         private static Dictionary<string, int> GetEnumMap<T>()
