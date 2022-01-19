@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Common.Utils;
 using JetBrains.Annotations;
 using TypeParser;
+using TypeParser.UtilityClasses;
 
 
 namespace UnitTests
@@ -61,10 +62,18 @@ namespace UnitTests
         }
 
         [Test]
-        public void AnotherTest2()
+        public void ListOfTuplesTest()
         {
             var result = TypeParse.Parse<List<(string, int)>>("abc 123, def 456", new FormatAttribute{Separator = ","});
             result.Should().Equal(("abc", 123), ("def", 456));
+        }
+
+        [Test]
+        public void ListOfTuplesWithOptionalTest()
+        {
+            // TODO: doesn't work for (string, int?, int)
+            var result = TypeParse.Parse<List<(string, int, int?)>>("abc 123, def 5 456", new FormatAttribute { Separator = "," });
+            result.Should().Equal(("abc", 123, null), ("def", 5, 456));
         }
 
         [TestCase(0, 1, 0, 0)]
@@ -109,6 +118,16 @@ namespace UnitTests
             var m = matcher.Match(input);
             if (expected is { } e) m!.Value.Should().Be(e);
             else m.Should().BeNull();
+        }
+
+        [Test]
+        public void AlternativeTest()
+        {
+            var matcher = TypeParse.Compile<IAlternative<int, string>>();
+            var m = matcher.Match(" 123");
+            m!.Value.Select(_ => "int", _ => "string").Should().Be("int");
+            m = matcher.Match(" abc");
+            m!.Value.Select(_ => "int", _ => "string").Should().Be("string");
         }
 
         private string RandomString()

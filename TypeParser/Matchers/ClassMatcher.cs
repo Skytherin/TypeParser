@@ -72,7 +72,6 @@ namespace TypeParser.Matchers
             }
 
             var instance = Instantiate(actuals);
-            Debug.WriteLine($"Matched {instance.GetType().Name}; tail = {input}");
             return new(instance, input);
         }
 

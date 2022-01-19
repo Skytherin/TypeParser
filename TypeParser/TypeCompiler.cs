@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using Common.Utils;
 using JetBrains.Annotations;
 using TypeParser.Matchers;
+using TypeParser.UtilityClasses;
 
 namespace TypeParser
 {
@@ -47,6 +48,14 @@ namespace TypeParser
             if (type == typeof(string)) return new StringMatcher(format.Regex);
 
             if (CompiledTypes.TryGetValue(type, out var compiledType)) return compiledType;
+
+            if (type.IsGenericType &&
+                type.GetGenericTypeDefinition() == typeof(IAlternative<,>))
+            {
+                var atype = typeof(AlternativeMatcher<,>).MakeGenericType(type.GenericTypeArguments);
+                var matcher = (ITypeMatcher)Activator.CreateInstance(atype, this)!;
+                CompiledTypes.Add(type, matcher);
+            }
 
             if (type.IsGenericType &&
                 type.GenericTypeArguments.Length == 1 &&
