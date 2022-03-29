@@ -29,7 +29,7 @@ namespace TypeParser.Matchers
             }
 
             remainder = remainder[m2.Length..];
-            return new(m.Object, remainder);
+            return new(m.Value, remainder);
         }
     }
 }

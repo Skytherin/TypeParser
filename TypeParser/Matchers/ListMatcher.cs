@@ -6,9 +6,9 @@ namespace TypeParser.Matchers
     internal class ListMatcher<T> : ITypeMatcher
     {
         private readonly ITypeMatcher ElementMatcher;
-        private readonly Format Repeat;
+        private readonly InternalFormat Repeat;
 
-        public ListMatcher(ITypeMatcher elementMatcher, Format repeat)
+        public ListMatcher(ITypeMatcher elementMatcher, InternalFormat repeat)
         {
             Repeat = repeat;
             ElementMatcher = elementMatcher;
@@ -26,11 +26,12 @@ namespace TypeParser.Matchers
                 return null;
             }
 
-            instance.Add((T)m.Object!);
+            instance.Add((T)m.Value!);
             input = m.Remainder;
 
             while (instance.Count < Repeat.Max)
             {
+                if (string.IsNullOrWhiteSpace(input)) break;
                 var m1 = Regex.Match(input, @$"^\s*{Repeat.Separator}\s*");
                 if (!m1.Success) break;
                 input = input[m1.Length..];
@@ -39,7 +40,7 @@ namespace TypeParser.Matchers
 
                 if (m == null) return null;
 
-                instance.Add((T)m.Object!);
+                instance.Add((T)m.Value!);
                 input = m.Remainder;
             }
 

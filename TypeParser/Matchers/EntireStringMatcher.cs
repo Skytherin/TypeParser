@@ -20,7 +20,7 @@
                 return null;
             }
 
-            return new(m.Object, "");
+            return new(m.Value, "");
         }
     }
 }

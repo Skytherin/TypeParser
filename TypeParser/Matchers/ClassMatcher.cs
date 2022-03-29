@@ -9,13 +9,16 @@ namespace TypeParser.Matchers
 {
     internal class ClassMatcher : ITypeMatcher
     {
-        private readonly TypeCompiler Compiler;
+        private readonly InternalTypeCompiler Compiler;
         private readonly ConstructorInfo Ctor;
         private readonly IReadOnlyList<InfoType> Properties;
         private IReadOnlyList<ITypeMatcher>? Matchers;
+        private readonly string Name;
+        private IReadOnlyList<IReadOnlyList<ITypeMatcher>>? InternalAlternativeGroups;
 
-        public ClassMatcher(Type type, TypeCompiler compiler)
+        public ClassMatcher(Type type, InternalTypeCompiler compiler)
         {
+            Name = type.Name;
             Compiler = compiler;
             var ctors = type.GetConstructors();
             Ctor = ctors.FirstOrDefault(ctor => ctor.GetParameters().Length == 0) ?? ctors.First();
@@ -24,7 +27,7 @@ namespace TypeParser.Matchers
             {
                 Properties = type.GetProperties()
                     .Where(p => p.SetMethod != null)
-                    .Where(p => p.GetCustomAttribute<RxIgnore>() == null)
+                    .Where(p => p.GetCustomAttribute<Ignore>() == null)
                     .Select(property => new InfoType(property.PropertyType, property.GetCustomAttributes().ToList(),
                         property))
                     .ToList();
@@ -42,6 +45,12 @@ namespace TypeParser.Matchers
             }
         }
 
+        private IReadOnlyList<IReadOnlyList<ITypeMatcher>> AlternativeGroups()
+        {
+            if (InternalAlternativeGroups == null) InternalAlternativeGroups = SplitIntoAlternativeGroups();
+            return InternalAlternativeGroups;
+        }
+
         private record InfoType(Type Type, IReadOnlyList<Attribute> Attributes, 
             PropertyInfo? PropertyInfo = null);
 
@@ -51,7 +60,7 @@ namespace TypeParser.Matchers
             {
                 Matchers = Properties.Select(it =>
                     Compiler.Compile(it.Type,
-                        it.Attributes.OfType<FormatAttribute>().FirstOrDefault()?.Format())).ToList();
+                        it.Attributes.OfType<Format>().FirstOrDefault()?.Format())).ToList();
             }
 
             return Matchers;
@@ -61,12 +70,14 @@ namespace TypeParser.Matchers
         {
             var actuals = new List<object?>();
 
-            var alternativeGroups = SplitIntoAlternativeGroups();
-
-            foreach (var alternativeGroup in alternativeGroups)
+            foreach (var alternativeGroup in AlternativeGroups())
             {
                 var result = MatchAlternates(alternativeGroup, input);
-                if (result is not {} r) return null;
+                if (result is not { } r)
+                {
+                    Debug.WriteLine($"Failed to match class {Name}");
+                    return null;
+                }
                 actuals.AddRange(r.Actuals);
                 input = r.Remainder;
             }
@@ -81,7 +92,7 @@ namespace TypeParser.Matchers
             List<ITypeMatcher>? g = null;
             foreach (var (property, propertyMatcher) in Properties.Zip(Compile()))
             {
-                var rxAlternate = property.Attributes.OfType<RxAlternate>().FirstOrDefault();
+                var rxAlternate = property.Attributes.OfType<Alternate>().FirstOrDefault();
                 if (rxAlternate == null)
                 {
                     alternativeGroups.Add(new() { propertyMatcher });
@@ -123,7 +134,7 @@ namespace TypeParser.Matchers
                 }
 
                 found = true;
-                actuals.Add(matched.Object);
+                actuals.Add(matched.Value);
                 input = matched.Remainder;
             }
 

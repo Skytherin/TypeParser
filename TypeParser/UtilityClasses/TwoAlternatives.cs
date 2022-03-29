@@ -6,7 +6,12 @@ namespace TypeParser.UtilityClasses
 {
     public interface IAlternative<out T1, out T2>
     {
-        T3 Select<T3>(Func<T1, T3> whenFirst, Func<T2, T3> whenSecond);
+        TResult Select<TResult>(Func<T1, TResult> whenFirst, Func<T2, TResult> whenSecond);
+    }
+
+    public static class Alternative2Extensions
+    {
+        public static object? AsObject<T1, T2>(this IAlternative<T1, T2> self) => self.Select(it => it as object, it => it);
     }
 
     internal class FirstAlternative<T1, T2> : IAlternative<T1, T2>
@@ -18,10 +23,12 @@ namespace TypeParser.UtilityClasses
             Value = value;
         }
 
-        public T3 Select<T3>(Func<T1, T3> whenFirst, Func<T2, T3> whenSecond)
+        public TResult Select<TResult>(Func<T1, TResult> whenFirst, Func<T2, TResult> whenSecond)
         {
             return whenFirst(Value);
         }
+
+        public override string ToString() => Value?.ToString() ?? "null";
     }
 
     internal class SecondAlternative<T1, T2> : IAlternative<T1, T2>
@@ -33,9 +40,11 @@ namespace TypeParser.UtilityClasses
             Value = value;
         }
 
-        public T3 Select<T3>(Func<T1, T3> whenFirst, Func<T2, T3> whenSecond)
+        public TResult Select<TResult>(Func<T1, TResult> whenFirst, Func<T2, TResult> whenSecond)
         {
             return whenSecond(Value);
         }
+
+        public override string ToString() => Value?.ToString() ?? "null";
     }
 }

@@ -3,14 +3,14 @@ using System.Text.RegularExpressions;
 
 namespace TypeParser.Matchers
 {
-    internal class RxMatcher<T>: ITypeMatcher
+    internal class TypedRxMatcher<T>: ITypeMatcher
     {
-        private readonly Regex Rx;
+        private readonly PlainRxMatcher Rx;
         private readonly Func<string, T> Convert;
 
-        public RxMatcher(Regex rx, Func<string, T> convert)
+        internal TypedRxMatcher(Regex rx, Func<string, T> convert)
         {
-            Rx = new($"^{rx}");
+            Rx = new PlainRxMatcher(rx);
             Convert = convert;
         }
 
@@ -18,8 +18,8 @@ namespace TypeParser.Matchers
         {
             input = input.TrimStart();
             var m = Rx.Match(input);
-            if (!m.Success) return null;
-            return new(Convert(m.Value), input[m.Length..]);
+            if (m == null) return null;
+            return new(Convert((string)m.Value!), m.Remainder);
         }
     }
 }

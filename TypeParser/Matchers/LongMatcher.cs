@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace TypeParser.Matchers
 {
-    internal class LongMatcher : RxMatcher<long>
+    internal class LongMatcher : TypedRxMatcher<long>
     {
         public LongMatcher(Regex? regex) : base(regex ?? new(@"-?\d+"), Convert.ToInt64)
         {

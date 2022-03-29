@@ -1,12 +1,12 @@
-﻿using System;
-using FluentAssertions;
+﻿using FluentAssertions;
 using NUnit.Framework;
 using TypeParser;
+using TypeParser.UtilityClasses;
 
 namespace UnitTests
 {
     [TestFixture]
-    public class MathTest
+    public class MathWithAlternativesTest
     {
         [TestCase("1", 1)]
         [TestCase("(1)", 1)]
@@ -33,12 +33,12 @@ namespace UnitTests
             public Expression(Expression2 expression2,
                 [Format(Optional = true)] AddTail? tail)
             {
-                this.Expression2 = expression2;
-                this.Tail = tail;
+                Expression2 = expression2;
+                Tail = tail;
             }
 
-            public Expression2 Expression2 { get; init; }
-            public AddTail? Tail { get; init; }
+            private readonly Expression2 Expression2;
+            private readonly AddTail? Tail;
 
             public long Evaluate()
             {
@@ -49,37 +49,37 @@ namespace UnitTests
 
         internal class Expression2
         {
-            public Expression2([Alternate, Format(Before = "(", After = ")")] Expression? parenExpression,
-                [Alternate] long? value,
+            public Expression2(
+                IAlternative<ParenthesizedExpression, long> value,
                 [Format(Optional = true)] MultiplyTail? tail)
             {
-                ParenExpression = parenExpression;
                 Value = value;
                 Tail = tail;
             }
 
-            public Expression? ParenExpression { get; init; }
-            public long? Value { get; init; }
-            public MultiplyTail? Tail { get; init; }
+            private readonly IAlternative<ParenthesizedExpression, long> Value;
+            private readonly MultiplyTail? Tail;
 
             public long Evaluate()
             {
-                var v1 = ParenExpression?.Evaluate() ?? Value ?? throw new ApplicationException();
+                var v1 = Value.Select(first => first.Expression.Evaluate(), second => second);
                 return Tail?.Evaluate(v1) ?? v1;
             }
         }
 
+        internal record ParenthesizedExpression([Format(Before = "(", After = ")")] Expression Expression);
+
         internal class AddTail
         {
-            public AddTail([Format(Regex = "[-+]")] char @operator,
+            public AddTail([Format(Regex = @"[-+]")] char @operator,
                 Expression expression)
             {
                 Operator = @operator;
                 Expression = expression;
             }
 
-            public char Operator { get; init; }
-            public Expression Expression { get; init; }
+            private readonly char Operator;
+            private readonly Expression Expression;
 
             public long Evaluate(long lhs)
             {
@@ -91,7 +91,7 @@ namespace UnitTests
 
         internal class MultiplyTail
         {
-            public MultiplyTail([Format(Regex = "[*/]")] char @operator,
+            public MultiplyTail([Format(Regex = @"[*/]")] char @operator,
                 Expression2 expression)
             {
                 Operator = @operator;

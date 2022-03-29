@@ -1,120 +1,87 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.CompilerServices;
 using Common.Utils;
 using JetBrains.Annotations;
 using TypeParser.Matchers;
-using TypeParser.UtilityClasses;
 
 namespace TypeParser
 {
-    internal class TypeCompiler
+    public interface ITypeParser<T>
     {
-        private readonly Dictionary<Type, ITypeMatcher> CompiledTypes = new();
+        record Result(T Value, string Remainder);
 
-        public ITypeMatcher Compile(Type type, Format? format = null)
+        Result? Match(string input);
+    }
+
+    internal class TypeParserFacade<T>: ITypeParser<T>
+    {
+        private readonly ITypeMatcher Actual;
+
+        public TypeParserFacade(ITypeMatcher actual)
         {
-            format ??= FormatExtensions.DefaultFormat();
-            if (type.IsGenericType &&
-                type.GetGenericTypeDefinition() == typeof(Nullable<>) &&
-                type.GenericTypeArguments.Length == 1 &&
-                type.GenericTypeArguments.FirstOrDefault() is { } targ &&
-                type.IsAssignableTo(typeof(Nullable<>).MakeGenericType(targ)))
-            {
-                return new OptionalMatcher(Compile(targ, format with {Optional = false}));
-            }
-
-            if (format is {Optional: true})
-            {
-                return new OptionalMatcher(Compile(type, format with {Optional = false}));
-            }
-
-            if (format.Before is not null)
-            {
-                return new BeforeMatcher(format.Before, Compile(type, format with {Before = null}));
-            }
-
-            if (format.After is not null)
-            {
-                return new AfterMatcher(format.After, Compile(type, format with {After = null}));
-            }
-
-            if (type == typeof(int)) return new IntMatcher(format.Regex);
-            if (type == typeof(long)) return new LongMatcher(format.Regex);
-            if (type == typeof(char)) return new CharMatcher(format.Regex);
-            if (type == typeof(string)) return new StringMatcher(format.Regex);
-
-            if (CompiledTypes.TryGetValue(type, out var compiledType)) return compiledType;
-
-            if (type.IsGenericType &&
-                type.GetGenericTypeDefinition() == typeof(IAlternative<,>))
-            {
-                var atype = typeof(AlternativeMatcher<,>).MakeGenericType(type.GenericTypeArguments);
-                var matcher = (ITypeMatcher)Activator.CreateInstance(atype, this)!;
-                CompiledTypes.Add(type, matcher);
-            }
-
-            if (type.IsGenericType &&
-                type.GenericTypeArguments.Length == 1 &&
-                type.GenericTypeArguments.FirstOrDefault() is { } targ2 &&
-                typeof(List<>).MakeGenericType(targ2) is {} listType &&
-                type.IsAssignableFrom(listType))
-            {
-                var elementMatcher = Compile(targ2);
-                var listMatcherType = typeof(ListMatcher<>).MakeGenericType(targ2);
-                return (ITypeMatcher)Activator.CreateInstance(listMatcherType, elementMatcher, format)!;
-            }
-
-            if (type.IsEnum)
-            {
-                var mi = typeof(TypeCompiler).GetMethod("GetEnumMap", BindingFlags.NonPublic | BindingFlags.Static);
-                var fooRef = mi!.MakeGenericMethod(type);
-                var map = (Dictionary<string, object>)fooRef.Invoke(null, null)!;
-
-                var alternation = map.Keys.Select(it => $"({it})").Join("|");
-
-                return new RxMatcher<object?>(new(alternation), s => map[s.ToLower()]);
-            }
-
-            if (type.IsGenericType &&
-                type.IsAssignableTo(typeof(ITuple)) || type.IsClass)
-            {
-                var classMatcher = new ClassMatcher(type, this);
-                CompiledTypes.Add(type, classMatcher);
-                return classMatcher;
-            }
-
-            throw new ApplicationException();
+            Actual = actual;
         }
 
-        
-        [UsedImplicitly]
-#pragma warning disable IDE0051
-        private static Dictionary<string, int> GetEnumMap<T>()
+        public ITypeParser<T>.Result? Match(string input)
         {
-            var enumValues = typeof(T).GetEnumValues();
-            var result = new Dictionary<string, int>();
+            var m = Actual.Match(input);
+            if (m == null) return null;
+            return new((T)m.Value!, m.Remainder);
+        }
+    }
 
-            foreach (T value in enumValues)
+    [UsedImplicitly]
+    public static class TypeCompiler
+    {
+        [UsedImplicitly]
+        public static ITypeParser<T> Compile<T>(Format? format = null)
+        {
+            var compiler = new InternalTypeCompiler();
+            return new TypeParserFacade<T>(new EntireStringMatcher(compiler.Compile(typeof(T), format?.Format())));
+        }
+
+        public static ITypeParser<T> GetTypeParser<T>(Format? format = null)
+        {
+            var compiler = new InternalTypeCompiler();
+            return new TypeParserFacade<T>(compiler.Compile(typeof(T), format?.Format()));
+        }
+
+        public static T Parse<T>(string input, Format? format = null)
+        {
+            var compiled = Compile<T>(format);
+            var m = compiled.Match(input);
+            if (m != null)
             {
-                var memberInfo = typeof(T)
-                    .GetMember(value.ToString()!)
-                    .First();
-
-                if (memberInfo.GetCustomAttribute<DescriptionAttribute>() is { } description)
-                {
-                    result[description.Description.ToLower()] = Convert.ToInt32(value);
-                }
-                else
-                {
-                    result[memberInfo.Name.ToLower()] = Convert.ToInt32(value);
-                }
+                return m.Value;
             }
 
-            return result;
+            throw new ApplicationException("Failed to match.");
+        }
+
+        [UsedImplicitly]
+        public static List<T> ParseLines<T>(string input, Format? format = null)
+        {
+            var compiled = Compile<T>(format);
+            return input.Lines().Select(line =>
+            {
+                var m = compiled.Match(line);
+                if (m != null) return m.Value;
+                throw new ApplicationException($"Matching error on line {line}");
+            }).ToList();
+        }
+
+        [UsedImplicitly]
+        public static T? ParseOrDefault<T>(string input)
+        {
+            try
+            {
+                return Parse<T>(input);
+            }
+            catch
+            {
+                return default;
+            }
         }
     }
 }

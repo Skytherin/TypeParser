@@ -1,12 +1,17 @@
 ﻿using System;
+using System.Globalization;
+using System.Linq;
 using System.Text.RegularExpressions;
+using Common.Utils;
+using JetBrains.Annotations;
 
 namespace TypeParser
 {
-    internal record Format(Regex? Before, Regex? After, bool Optional, Regex? Regex, int Min, int Max, Regex Separator);
+    internal record InternalFormat(Regex? Before, Regex? After, bool Optional, Regex? Regex, int Min, int Max, Regex? Separator);
 
+    [MeansImplicitUse]
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
-    public class FormatAttribute : Attribute
+    public class Format : Attribute
     {
         public string? After { get; init; }
 
@@ -14,7 +19,10 @@ namespace TypeParser
 
         public bool Optional { get; init; }
 
+        [RegexPattern]
         public string? Regex { get; init; }
+
+        public string? Choices { get; init; }
 
         public int Min { get; init; }
         public int Max { get; init; } = int.MaxValue;
@@ -23,16 +31,44 @@ namespace TypeParser
 
     internal static class FormatExtensions
     {
-        internal static Regex DefaultSeparator = new(@"\s+");
-        public static Format Format(this FormatAttribute format) => new(Convert(format.Before), 
+        public static InternalFormat Format(this Format format) => new(Convert(format.Before), 
             Convert(format.After), 
             format.Optional, 
-            Convert(format.Regex), 
+            ConvertChoices(format.Choices) ?? Convert2(format.Regex), 
             format.Min, 
             format.Max, 
-            Convert(format.Separator) ?? DefaultSeparator);
+            Convert(format.Separator));
 
-        public static Format DefaultFormat() => new(null, null, false, null, 0, Int32.MaxValue, DefaultSeparator);
+        private static Regex? Convert2(string? rx)
+        {
+            if (rx == null) return null;
+            if (!rx.StartsWith("^")) return new($"^({rx})");
+            return new(rx);
+        }
+
+        private static Regex? ConvertChoices(string? formatChoices)
+        {
+            if (formatChoices == null) return null;
+
+            var choices = formatChoices.Split(" ", StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var (earlyChoice, index) in choices.WithIndices())
+            {
+                foreach (var laterChoice in choices.Skip(index + 1))
+                {
+                    if (laterChoice.StartsWith(earlyChoice, true, CultureInfo.InvariantCulture))
+                    {
+                        throw new ApplicationException($"Choice {laterChoice} will never be matched because choice {earlyChoice} will be matched first. To remove this error, rearrange choices.");
+                    }
+                }
+            }
+
+            var rx = choices
+                .Select(it => $"({Regex.Escape(it)})").Join("|");
+            return new Regex($"^({rx})", RegexOptions.IgnoreCase);
+        }
+
+        public static InternalFormat DefaultFormat() => new(null, null, false, null, 0, int.MaxValue, null);
 
         private static Regex? Convert(string? s)
         {
@@ -44,18 +80,18 @@ namespace TypeParser
                 return new Regex(@$"^\s*({s})");
             }
 
-            return new(Regex.Escape(s));
+            return new($"^({Regex.Escape(s)})");
         }
     }
 
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
-    public class RxAlternate : Attribute
+    public class Alternate : Attribute
     {
         public bool Restart { get; set; }
     }
 
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
-    public class RxIgnore : Attribute
+    public class Ignore : Attribute
     {
     }
 }
